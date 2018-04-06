@@ -71,7 +71,7 @@ int main(string[] args)
 		{
 			auto container = resources.load!Scene("models/container/container.obj")
 				.value.meshes[0].toGLMesh;
-			auto texSpecial = resources.load!GLTexture("models/container/container_satania.png");
+			auto texSpecial = resources.load!GLTexture("models/container/container2.png");
 			auto tex = resources.load!GLTexture("models/container/container.png");
 
 			for (int x = startContainers; x <= endContainers; x++)
