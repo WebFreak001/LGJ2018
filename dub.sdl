@@ -1,0 +1,13 @@
+name "webfreak-lgj"
+description "Linux Game Jam entry 2018"
+authors "webfreak"
+copyright "Copyright © 2018, webfreak"
+license "MIT"
+
+dependency "avocado:assimp" path="Avocado"
+dependency "avocado:bmfont" path="Avocado"
+dependency "avocado:core" path="Avocado"
+dependency "avocado:dfs" path="Avocado"
+dependency "avocado:gl3" path="Avocado"
+dependency "avocado:input" path="Avocado"
+dependency "avocado:sdl2" path="Avocado"

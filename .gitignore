@@ -1,0 +1,17 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/webfreak-lgj
+webfreak-lgj.so
+webfreak-lgj.dylib
+webfreak-lgj.dll
+webfreak-lgj.a
+webfreak-lgj.lib
+webfreak-lgj-test-*
+*.exe
+*.o
+*.obj
+*.lst
+design/
+dub.selections.json
