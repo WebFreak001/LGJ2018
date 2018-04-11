@@ -1,0 +1,4 @@
+#define MINIMP3_IMPLEMENTATION
+#define MINIMP3_NONSTANDARD_BUT_LOGICAL
+#define MINIMP3_ONLY_MP3
+#include "minimp3/minimp3.h"

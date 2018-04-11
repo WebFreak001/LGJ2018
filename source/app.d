@@ -1,20 +1,30 @@
 import std.stdio;
 
+import archive.zip;
+
+import avocado.assimp;
 import avocado.core;
 import avocado.dfs;
-import avocado.sdl2;
 import avocado.gl3;
-import avocado.assimp;
+import avocado.sdl2;
+
+import core.thread;
 
 import fs = std.file;
-import std.path;
+import std.algorithm;
 import std.format;
+import std.math;
+import std.path;
 import std.random;
+import std.string;
 
-import config;
+import audioengine;
 import components;
+import config;
+import osu;
 import systems.camera;
 import systems.display;
+import systems.movement;
 
 /// The entrypoint of the program
 int main(string[] args)
@@ -23,9 +33,6 @@ int main(string[] args)
 	with (engine)
 	{
 		auto window = new View("Example");
-		window.grabMouse();
-		scope (exit)
-			window.ungrabMouse();
 		auto renderer = new Renderer;
 		auto world = add(window, renderer);
 
@@ -44,6 +51,7 @@ int main(string[] args)
 		//dfmt on
 
 		FPSLimiter limiter = new FPSLimiter(240);
+		world.addSystem!MovementSystem(&playerCam);
 		world.addSystem!CameraSystem(window, renderer, &playerCam);
 		world.addSystem!DisplaySystem(window, renderer);
 
@@ -56,7 +64,33 @@ int main(string[] args)
 		resources.prepend("res");
 		resources.prependAll("packs", "*.{pack,zip}");
 
-		writeln(resources.listResources("texture", true));
+		auto songs = resources.listResources("Songs");
+		immutable(ubyte)[] songMP3;
+		SongSelect: foreach (song; songs)
+		{
+			if (song.extension == ".osz")
+			{
+				auto archive = new ZipArchive(resources.readFile(song).dup);
+				foreach (file; archive.files)
+				{
+					if (file.path.extension != ".osu")
+						continue;
+					auto song = parseOsu(cast(string) file.data);
+					if (song.general.mode != Osu.Mode.taiko)
+						continue;
+					selectedSong = song;
+					songMP3 = archive.getFile(song.general.audioFilename).data;
+					break SongSelect;
+				}
+			}
+		}
+
+		if (selectedSong == Osu.init || !songMP3.length)
+			throw new Exception(
+					"No songs found (Place some osz files or folders with osu files in res/Songs)");
+		else
+			writeln("Playing ", selectedSong.metadata.artistUnicode, " - ", selectedSong.metadata.titleUnicode, " [",
+					selectedSong.metadata.version_, "] mapped by ", selectedSong.metadata.creator);
 
 		auto shader = new GL3ShaderProgram();
 		shader.attach(new GLShaderUnit(ShaderType.Fragment, import("texture.frag")))
@@ -78,7 +112,7 @@ int main(string[] args)
 				for (int y = 0; y <= yContainers; y++)
 					mixin(createEntity!("Container", q{
 						PositionComponent: vec3(x * 2.44 * 3, -(y + 1) * 2.44, 0)
-						Cyclic: startContainers * 2.44 * 3, (endContainers + 1) * 2.44 * 3
+						Cyclic: startContainers * 2.44 * 3, (endContainers + 1) * 2.44 * 3, 2.44 * 3
 						MeshComponent: uniform(0, 10) == 0 ? texSpecial : tex, shader, container
 						AABBCull: vec3(-1.22, 0, -3.03), vec3(1.22, 2.44, 3.03)
 					}));
@@ -100,6 +134,36 @@ int main(string[] args)
 		}
 
 		renderer.setupDepthTest(DepthFunc.Less);
+
+		bool running = true;
+		scope (exit)
+			running = false;
+		auto audioThread = new Thread({
+			try
+			{
+				audio.load();
+
+				try
+				{
+					audio.play(songMP3);
+				}
+				catch (Exception e)
+				{
+					stderr.writeln("Failed to play audio: ", e);
+				}
+
+				while (running)
+				{
+					audio.tick();
+					Thread.sleep(1.msecs);
+				}
+			}
+			catch (Error e)
+			{
+				writeln("Audio thread has crashed: ", e);
+			}
+		});
+		audioThread.start();
 
 		start();
 		while (update)

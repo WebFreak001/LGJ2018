@@ -1,3 +1,6 @@
 [submodule "Avocado"]
 	path = Avocado
 	url = https://github.com/TeamAvocado/Avocado
+[submodule "minimp3"]
+	path = minimp3
+	url = https://github.com/lieff/minimp3.git

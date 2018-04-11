@@ -69,6 +69,7 @@ final struct ControlComponent
 final struct Cyclic
 {
 	float min = 0, max = 0;
+	float step = 0;
 	mixin ComponentBase;
 }
 
@@ -90,6 +91,7 @@ final struct JumpPhysics
 {
 	HitJudgement lastHit;
 	float maxAnimationTime, animationTime;
+	float jumpAnimation;
 	bool stumbling;
 	mixin ComponentBase;
 

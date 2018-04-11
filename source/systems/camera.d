@@ -46,7 +46,6 @@ public:
 				currentCamera.pitch = clamp(currentCamera.pitch - Mouse.state.offY * 0.005,
 						-1.5707f, 1.5707f);
 				Mouse.state.resetOffset();
-				import std.stdio; writeln(*currentCamera);
 			}
 			renderer.view.top = mat4.translation(-currentCamera.offset) * mat4.yrotation(
 					-currentCamera.yaw).rotatex(-currentCamera.pitch) * mat4.translation(

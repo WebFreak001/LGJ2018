@@ -14,3 +14,4 @@ webfreak-lgj-test-*
 *.lst
 design/
 dub.selections.json
+res/Songs/

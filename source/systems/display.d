@@ -9,6 +9,8 @@ import components;
 
 import std.algorithm;
 
+enum float JumpHeight = 2;
+
 final class DisplaySystem : ISystem
 {
 private:
@@ -42,6 +44,24 @@ public:
 				JumpPhysics* phys;
 				if (entity.fetch(position))
 				{
+					if (entity.fetch(lock))
+					{
+						lock.value.position = position.position;
+						lock.value.position.y = 0;
+					}
+					if (entity.fetch(cyclic))
+					{
+						if (position.position.x < cyclic.min)
+							position.position.x += cyclic.max - cyclic.min;
+						else if (position.position.x > cyclic.max)
+							position.position.x += cyclic.min - cyclic.max;
+					}
+					if (entity.fetch(phys))
+					{
+						float nrm = (phys.jumpAnimation - 0.5f) * 2;
+						position.position.y = -(nrm * nrm) * JumpHeight + JumpHeight;
+					}
+
 					if (entity.fetch(mesh))
 					{
 						renderer.model.push();
@@ -65,28 +85,9 @@ public:
 						}
 						renderer.model.pop();
 					}
-					if (entity.fetch(lock))
-					{
-						lock.value.position = position.position;
-					}
-					if (entity.fetch(cyclic))
-					{
-						position.position.x += 5 * world.delta;
-						if (position.position.x < cyclic.min)
-							position.position.x += cyclic.max - cyclic.min;
-						else if (position.position.x > cyclic.max)
-							position.position.x += cyclic.min - cyclic.max;
-					}
-					if (entity.fetch(phys))
-					{
-					}
 				}
 			}
 		}
-
-		import std.stdio;
-
-		writeln("Drawn ", rendered);
 
 		renderer.bind2D();
 		foreach (entity; world.entities)
