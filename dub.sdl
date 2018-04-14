@@ -16,3 +16,4 @@ dependency "avocado:input" path="Avocado"
 dependency "avocado:sdl2" path="Avocado"
 
 dependency "libsoundio" version="1.0.0+1.1.0"
+dependency "wave-d" version="~>1.0.6"

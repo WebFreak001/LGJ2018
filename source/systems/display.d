@@ -1,15 +1,16 @@
 module systems.display;
 
 import avocado.core;
+import avocado.gl3;
 import avocado.sdl2;
 import avocado.input;
 
+import audioengine;
 import config;
 import components;
 
 import std.algorithm;
-
-enum float JumpHeight = 2;
+import std.stdio;
 
 final class DisplaySystem : ISystem
 {
@@ -18,12 +19,21 @@ private:
 	View view;
 	float time = 0;
 
+	GLTexture white, judgementCircle;
+	GLTexture redCircle, blueCircle;
+
 public:
-	this(View view, Renderer renderer)
+	this(View view, Renderer renderer, GLTexture judgementCircle,
+			GLTexture redCircle, GLTexture blueCircle)
 	{
 		this.renderer = renderer;
 		this.view = view;
 		renderer.projection.top = perspective(view.width, view.height, 90.0f, 0.01f, 100.0f);
+		white = new GLTexture();
+		white.create(1, 1, cast(ubyte[])[255, 255, 255, 255]);
+		this.judgementCircle = judgementCircle;
+		this.redCircle = redCircle;
+		this.blueCircle = blueCircle;
 	}
 
 	/// Draws the entities
@@ -33,6 +43,9 @@ public:
 		time += world.delta;
 		renderer.begin(view);
 		renderer.clear();
+
+		auto projectionView = renderer.projection.top * renderer.view.top;
+
 		foreach (entity; world.entities)
 		{
 			if (entity.alive)
@@ -59,23 +72,24 @@ public:
 					if (entity.fetch(phys))
 					{
 						float nrm = (phys.jumpAnimation - 0.5f) * 2;
-						position.position.y = -(nrm * nrm) * JumpHeight + JumpHeight;
+						auto jumpHeight = phys.height * 0.5;
+						position.position.y = -(nrm * nrm) * jumpHeight + jumpHeight;
 					}
 
-					if (entity.fetch(mesh))
+					renderer.model.push();
+					renderer.model.top *= mat4.translation(
+							position.position + position.offset) * position.rotation.to_matrix!(4, 4);
+					AABBCull cull;
+					bool draw = true;
+					bool hasCull;
+					if ((hasCull = entity.fetch(cull)) != false)
 					{
-						renderer.model.push();
-						renderer.model.top *= mat4.translation(
-								position.position + position.offset) * position.rotation.to_matrix!(4, 4);
-						AABBCull cull;
-						bool draw = true;
-						if (entity.fetch(cull))
-						{
-							if (!isInsideFrustum(renderer.projection.top * renderer.view.top * renderer.model.top,
-									cull.min, cull.max))
-								draw = false;
-						}
-						if (draw)
+						if (!isInsideFrustum(projectionView * renderer.model.top, cull.min, cull.max))
+							draw = false;
+					}
+					if (draw)
+					{
+						if (entity.fetch(mesh))
 						{
 							mesh.tex.bind(renderer, 0);
 							renderer.bind(mesh.shader);
@@ -83,40 +97,76 @@ public:
 							renderer.drawMesh(mesh.mesh);
 							rendered++;
 						}
-						renderer.model.pop();
+						ContainerStack containers;
+						if (entity.fetch(containers))
+						{
+							containers.tex.bind(renderer, 0);
+							for (int i = 0; i < containers.height; i++)
+							{
+								renderer.model.top[1][3] -= 2.44;
+								if (!hasCull || isInsideFrustum(projectionView * renderer.model.top,
+										containers.cullMin, containers.cullMax))
+								{
+									renderer.bind(containers.shader);
+									containers.shader.set("model", renderer.model.top);
+									renderer.drawMesh(containers.mesh);
+									rendered++;
+								}
+							}
+						}
 					}
+					renderer.model.pop();
 				}
 			}
 		}
 
 		renderer.bind2D();
+		renderer.drawRectangle(white, vec4(0, view.height - 123, view.width, 123));
 		foreach (entity; world.entities)
 		{
 			if (entity.alive)
 			{
 				{
-					RectangleComponent rect;
-					if (entity.fetch(rect))
+					HitCircleComponent* hitCircle;
+					if (entity.fetch(hitCircle))
 					{
-						renderer.drawRectangle(rect.tex, rect.rect);
-					}
-				}
-				{
-					SolidComponent rect;
-					if (entity.fetch(rect))
-					{
-						renderer.fillRectangle(rect.rect, rect.color);
-					}
-				}
-				{
-					ControlComponent control;
-					if (entity.fetch(control))
-					{
-						control.control.draw(renderer);
+						auto offset = hitCircle.info.time - audio.currentTime.total!"msecs"; // + audio.offset.total!"msecs";
+						auto x = 115 + offset * 0.5;
+						if (x >= -200 && x <= view.width + 200)
+						{
+							vec4 rect;
+							if (hitCircle.info.taikoIsBig)
+								rect = vec4(x - 60, view.height - 120, 120, 120);
+							else
+								rect = vec4(x - 40, view.height - 120 + 20, 80, 80);
+							float yDisplayOffset = 0;
+							vec4 color = vec4(1);
+							if (hitCircle.judgement == Judgement.hit)
+							{
+								if (offset < 0)
+								{
+									offset += 100;
+									yDisplayOffset = (offset * offset) * 0.01 - 100;
+								}
+							}
+							else if (hitCircle.judgement == Judgement.miss)
+							{
+								if (offset < 0)
+								{
+									color.a = (10 + offset) * 0.1;
+								}
+							}
+							rect.y += yDisplayOffset;
+							if (color.a > 0)
+								renderer.drawRectangle(hitCircle.info.taikoIsBlue ? blueCircle
+										: redCircle, rect, color);
+						}
 					}
 				}
 			}
 		}
+		renderer.drawRectangle(judgementCircle, vec4(0, -0.1, 1, 1.2), vec4(0,
+				view.height - 120, 200, 120), vec4(1));
 		renderer.bind3D();
 		renderer.end(view);
 	}

@@ -5,6 +5,7 @@ import avocado.gl3;
 import avocado.sdl2;
 
 import config;
+import osu;
 
 mixin BasicComponent!("VelocityComponent", vec3);
 mixin BasicComponent!("LockCamera", Camera*);
@@ -22,6 +23,21 @@ final struct MeshComponent
 	GLTexture tex;
 	GL3ShaderProgram shader;
 	GL3MeshCommon mesh;
+	mixin ComponentBase;
+
+	string toString() const
+	{
+		return format("Mesh %x", cast(size_t)&mesh);
+	}
+}
+
+final struct ContainerStack
+{
+	GLTexture tex;
+	GL3ShaderProgram shader;
+	GL3MeshCommon mesh;
+	int height;
+	vec3 cullMin, cullMax;
 	mixin ComponentBase;
 
 	string toString() const
@@ -92,6 +108,7 @@ final struct JumpPhysics
 	HitJudgement lastHit;
 	float maxAnimationTime, animationTime;
 	float jumpAnimation;
+	float height = 1;
 	bool stumbling;
 	mixin ComponentBase;
 
@@ -135,4 +152,20 @@ struct Camera
 
 	/// forward, backward, left, right
 	Key[4] movement;
+}
+
+enum Judgement
+{
+	tbd,
+	hit,
+	miss
+}
+
+struct HitCircleComponent
+{
+	int index;
+	HitObject info;
+	Judgement judgement;
+
+	mixin ComponentBase;
 }

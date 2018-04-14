@@ -51,10 +51,45 @@ struct HitObject
 	int customSampleSetIndex;
 	int sampleVolume;
 	string sampleFilename;
+
+	// additions for this game
+	double spacing = 3;
 }
 
 struct Osu
 {
+	enum Mod : uint
+	{
+		none = 0,
+		ez = 1 << 0,
+		nf = 1 << 1,
+		ht = 1 << 2,
+		hr = 1 << 3,
+		sd = 1 << 4,
+		pf = 0b11 << 4,
+		dt = 1 << 6,
+		nc = 0b11 << 6,
+		hd = 1 << 8,
+		fi = 1 << 9,
+		fl = 1 << 10,
+		rl = 1 << 11,
+		ap = 1 << 12,
+		so = 1 << 13,
+		at = 1 << 14,
+		cm = 1 << 15,
+		k1 = 1 << 16,
+		k2 = 2 << 16,
+		k3 = 3 << 16,
+		k4 = 4 << 16,
+		k5 = 5 << 16,
+		k6 = 6 << 16,
+		k7 = 7 << 16,
+		k8 = 8 << 16,
+		k9 = 9 << 16,
+		coop = 1 << 20,
+		rd = 1 << 21
+	}
+
 	enum Mode
 	{
 		osu,
@@ -83,7 +118,7 @@ struct Osu
 		@("DistanceSpacing") double distanceSpacing;
 		@("BeatDivisor") int beatDivisor;
 		@("GridSize") int gridSize;
-		@("TimelineZoom") int timelineZoom;
+		@("TimelineZoom") double timelineZoom;
 	}
 
 	struct Metadata
@@ -167,7 +202,7 @@ struct Osu
 			if (obj.type == HitObject.Type.circle)
 				extraIndex = 5;
 
-			if (extraIndex != 0)
+			if (extraIndex != 0 && extraIndex < parts.length)
 			{
 				auto extraParts = parts[extraIndex].split(':');
 				if (extraParts.length >= 5)
@@ -192,6 +227,77 @@ struct Osu
 	TimingPoints timingPoints;
 	Colours colours;
 	HitObjects hitObjects;
+
+	double odWith(Mod mods = Mod.none) @property const
+	{
+		double od = difficulty.overallDifficulty;
+		if (mods & Mod.ez)
+			od *= 0.5;
+		if (mods & Mod.hr)
+			od = min(od * 1.4, 10);
+		return od;
+	}
+
+	double arWith(Mod mods = Mod.none) @property const
+	{
+		double ar = difficulty.approachRate;
+		if (mods & Mod.ez)
+			ar *= 0.5;
+		if (mods & Mod.hr)
+			ar = min(ar * 1.4, 10);
+		return ar;
+	}
+
+	double arMsWith(Mod mods = Mod.none) @property const
+	{
+		double ar = arWith(mods);
+		double ms;
+		if (ar < 5)
+			ms = 1800 - ar * 120;
+		else
+			ms = 1200 - (ar - 5) * 150;
+		if (mods & Mod.dt)
+			ms /= 1.5;
+		if (mods & Mod.ht)
+			ms /= 0.75;
+		if (ms < 300)
+			return 300;
+		else
+			return ms;
+	}
+
+	float hitMsFor300(Mod mods) @property const
+	{
+		double od = odWith(mods);
+		double ret = 79.5 - od * 6;
+		if (mods & Mod.dt)
+			ret /= 1.5;
+		if (mods & Mod.ht)
+			ret /= 0.75;
+		return ret;
+	}
+
+	float hitMsFor100(Mod mods) @property const
+	{
+		double od = odWith(mods);
+		double ret = 139.5 - od * 8;
+		if (mods & Mod.dt)
+			ret /= 1.5;
+		if (mods & Mod.ht)
+			ret /= 0.75;
+		return ret;
+	}
+
+	float hitMsFor50(Mod mods) @property const
+	{
+		double od = odWith(mods);
+		double ret = 199.5 - od * 10;
+		if (mods & Mod.dt)
+			ret /= 1.5;
+		if (mods & Mod.ht)
+			ret /= 0.75;
+		return ret;
+	}
 }
 
 Osu parseOsu(string data)
@@ -231,6 +337,10 @@ Osu parseOsu(string data)
 			}
 		}
 	}
+	if (!ret.metadata.artistUnicode.length)
+		ret.metadata.artistUnicode = ret.metadata.artist;
+	if (!ret.metadata.titleUnicode.length)
+		ret.metadata.titleUnicode = ret.metadata.title;
 	return ret;
 }
 

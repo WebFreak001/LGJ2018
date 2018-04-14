@@ -15,50 +15,233 @@ import osu;
 
 Osu selectedSong;
 
+enum Red = false;
+enum Blue = true;
+
 final class MovementSystem : ISystem
 {
 private:
 	int index;
 	int msToNextObject;
-	int transitionMs;
+	int transitionMs, transitionStartMs;
 	float transitionOffset = 0;
 	Camera* camera;
+	SoundEffect clickEffect, clickEffect2;
+	KeyboardState prevState;
+	bool modAuto; // = true;
+
+	Key l1, l2, r1, r2;
+
+	long clickTime;
+	bool doubleClickBlue;
+	float doubleTimer = 0;
+
+	float correction = 0;
 
 public:
-	this(Camera* cam)
+	this(Camera* cam, SoundEffect normal, SoundEffect clap, Key l1, Key l2, Key r1, Key r2)
 	{
 		this.camera = cam;
+
+		clickEffect = clap;
+		clickEffect2 = normal;
+
+		this.l1 = l1;
+		this.l2 = l2;
+		this.r1 = r1;
+		this.r2 = r2;
 	}
 
-	/// Draws the entities
+	void score(int howMuch)
+	{
+		writeln(howMuch);
+	}
+
+	void hit(bool blue, bool big, long at)
+	{
+		auto circle = getCurrentCircle();
+		if (blue)
+		{
+			clickEffect2.volume = big ? 1.0 : 0.65;
+			audio.playEffect(clickEffect2);
+		}
+		else
+		{
+			clickEffect.volume = big ? 1.0 : 0.65;
+			audio.playEffect(clickEffect);
+		}
+		auto ms50 = selectedSong.hitMsFor50(Osu.Mod.none);
+		if (circle == HitObject.init || at < circle.time - ms50)
+			return;
+		if (circle.taikoIsBlue == blue)
+		{
+			int mul = 1;
+			if (circle.taikoIsBig && big)
+				mul = 2;
+			auto miss = abs(at - circle.time);
+			if (miss < selectedSong.hitMsFor300(Osu.Mod.none))
+				score(300 * mul);
+			else if (miss < selectedSong.hitMsFor100(Osu.Mod.none))
+				score(100 * mul);
+			else
+				score(50 * mul);
+			foreach (ref com; HitCircleComponent.components.byValue)
+			{
+				if (com.index == index)
+				{
+					com.judgement = Judgement.hit;
+					break;
+				}
+			}
+			nextCircle();
+		}
+		else
+		{
+			foreach (ref com; HitCircleComponent.components.byValue)
+			{
+				if (com.index == index)
+				{
+					com.judgement = Judgement.miss;
+					break;
+				}
+			}
+			miss();
+		}
+	}
+
+	void miss()
+	{
+		score(0);
+		nextCircle();
+	}
+
+	HitObject getCurrentCircle()
+	{
+		if (index >= selectedSong.hitObjects.objects.length
+				|| audio.currentTime.total!"msecs" < selectedSong.hitObjects.objects[index].time - selectedSong.hitMsFor50(
+				Osu.Mod.none))
+			return HitObject.init;
+		else
+			return selectedSong.hitObjects.objects[index];
+	}
+
+	void onKeyboard(KeyboardEvent event)
+	{
+		if (event.type == SDL_KEYDOWN && !event.repeat)
+		{
+			if (!modAuto)
+			{
+				if (event.keysym.sym == l1 || event.keysym.sym == l2)
+					userClick(Red);
+				else if (event.keysym.sym == r1 || event.keysym.sym == r2)
+					userClick(Blue);
+				else if (event.keysym.sym == Key.F1)
+				{
+					audio.clearBuffer();
+				}
+			}
+		}
+	}
+
+	void userClick(bool blue)
+	{
+		if (doubleTimer > 0)
+		{
+			if (doubleClickBlue == blue)
+				hit(blue ? Blue : Red, true, clickTime);
+			else
+			{
+				hit(blue ? Red : Blue, false, clickTime);
+				hit(blue ? Blue : Red, false, audio.currentTime.total!"msecs");
+			}
+			doubleTimer = 0;
+		}
+		else
+		{
+			doubleClickBlue = blue;
+			doubleTimer = 0.02;
+			clickTime = audio.currentTime.total!"msecs";
+		}
+	}
+
+	void triggerNonDouble()
+	{
+		hit(doubleClickBlue ? Blue : Red, false, clickTime);
+		doubleTimer = 0;
+	}
+
+	void nextCircle()
+	{
+		auto object = selectedSong.hitObjects.objects[index];
+		auto nextStart = selectedSong.hitObjects.objects[(index + 1) % $].time;
+
+		if (nextStart < object.time)
+			msToNextObject = 100;
+		else
+			msToNextObject = nextStart - object.time;
+
+		msToNextObject -= cast(int) selectedSong.hitMsFor300(Osu.Mod.none);
+		if (msToNextObject <= 10)
+			msToNextObject = 10;
+
+		if (object.taikoIsBig)
+			writeln(object.taikoIsBlue ? "A" : "B");
+		else
+			writeln(object.taikoIsBlue ? "a" : "b");
+		index++;
+
+		auto time = audio.currentTime.total!"msecs";
+		if (time > object.time)
+			transitionMs = 0;
+		else if (index < selectedSong.hitObjects.objects.length)
+			transitionStartMs = cast(int)(time - object.time);
+	}
+
 	final void update(World world)
 	{
 		auto prevOffset = transitionOffset;
-		bool reset;
 
-		if (index < selectedSong.hitObjects.objects.length
-				&& audio.currentTime.total!"msecs" > selectedSong.hitObjects.objects[index].time)
+		if (doubleTimer > 0)
+		{
+			doubleTimer -= world.delta;
+			if (doubleTimer <= 0)
+				triggerNonDouble();
+		}
+
+		auto time = audio.currentTime.total!"msecs";
+
+		double width = 0;
+
+		if (index < selectedSong.hitObjects.objects.length)
 		{
 			auto object = selectedSong.hitObjects.objects[index];
-			auto nextStart = selectedSong.hitObjects.objects[(index + 1) % $].time;
-
-			if (nextStart < object.time)
-				msToNextObject = 100;
-			else
-				msToNextObject = nextStart - object.time;
-
-			transitionMs = 0;
-			reset = true;
-			if (object.taikoIsBig)
-				writeln(object.taikoIsBlue ? "A" : "B");
-			else
-				writeln(object.taikoIsBlue ? "a" : "b");
-			index++;
+			if (time > selectedSong.hitObjects.objects[index].time + (modAuto ? 0
+					: selectedSong.hitMsFor50(Osu.Mod.none)))
+			{
+				if (modAuto)
+					hit(object.taikoIsBlue, object.taikoIsBig, time);
+				else if (doubleTimer > 0)
+					triggerNonDouble();
+				else
+					miss();
+			}
+			width = object.spacing;
 		}
-		if (index == selectedSong.hitObjects.objects.length)
+		if (index == selectedSong.hitObjects.objects.length
+				&& audio.audioReadIndex >= audio.audioData.length)
 		{
 			index = 0;
 			audio.reset();
+		}
+
+		if (transitionStartMs > 0)
+		{
+			transitionStartMs -= cast(int)(world.delta * 1000 * audio.effectiveSpeed);
+			if (transitionStartMs <= 0)
+			{
+				transitionMs = 0;
+				transitionStartMs = 0;
+			}
 		}
 
 		transitionMs += cast(int)(world.delta * 1000 * audio.effectiveSpeed);
@@ -77,26 +260,44 @@ public:
 			transitionOffset = 1;
 
 		float movement = prevOffset - transitionOffset;
+		bool finishedMoving;
 		if (movement > 0)
+		{
 			movement--;
+			finishedMoving = true;
+		}
 
+		float nextCorrection = 0;
 		foreach (entity; world.entities)
 		{
 			if (entity.alive)
 			{
 				PositionComponent* position;
+				HitCircleComponent* hitObject;
 				Cyclic cyclic;
-				if (entity.fetch(position, cyclic))
+				if (entity.fetch(position))
 				{
-					position.position.x += movement * cyclic.step;
+					if (entity.fetch(position, cyclic))
+					{
+						position.position.x += movement * cyclic.step;
+					}
+					if (entity.fetch(hitObject))
+					{
+						position.position.x += correction;
+						position.position.x += movement * 2.44 * width;
+						if (finishedMoving && hitObject.index == index - 1 && position.position.x != 0)
+							nextCorrection = -position.position.x;
+					}
 				}
 
 				JumpPhysics* jump;
 				if (entity.fetch(jump))
 				{
+					jump.height = width;
 					jump.jumpAnimation = transitionOffset;
 				}
 			}
 		}
+		correction = nextCorrection;
 	}
 }

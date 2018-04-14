@@ -37,6 +37,18 @@ extern (C)
 
 __gshared AudioEngine audio;
 
+struct SoundEffect
+{
+	short[] data;
+	ptrdiff_t time;
+	float volume = 1;
+
+	string toString() const
+	{
+		return "SoundEffect(" ~ time.to!string ~ " / " ~ data.length.to!string ~ ")";
+	}
+}
+
 /// Represents the audio engine to play music accurately. There should be only one instance of this.
 struct AudioEngine
 {
@@ -46,6 +58,7 @@ struct AudioEngine
 	int audioSampleRate;
 	/// Index where the audio stream is currently at.
 	size_t audioReadIndex;
+	SoundEffect[16] playingEffects;
 
 	/// Device to handle sound device management with.
 	SoundIo* soundio;
@@ -70,6 +83,14 @@ struct AudioEngine
 	float speed = 1;
 	/// Speed when last sent a frame.
 	float effectiveSpeed = 1;
+	/// Master sound volume
+	float masterVolume = 1;
+	/// Background music volume
+	float musicVolume = 1;
+	/// Master sound effect volume
+	float effectsVolume = 1;
+	/// Background music offset
+	Duration offset = -30.msecs;
 
 	/// minimp3 instance for mp3 decoding
 	mp3dec_t decoder;
@@ -152,7 +173,7 @@ struct AudioEngine
 		outstream = soundio_outstream_create(device);
 		outstream.format = SoundIoFormatS16NE;
 		outstream.sample_rate = hz;
-		outstream.software_latency = 0;
+		outstream.software_latency = 0.03; // should be a bit higher for recordings to work, but low enough not to introduce any input delay, around 30ms is good.
 	ChannelSelect:
 		switch (channels)
 		{
@@ -252,18 +273,33 @@ struct AudioEngine
 		currentOffset.stop();
 	}
 
+	void clearBuffer()
+	{
+		soundio_outstream_clear_buffer(outstream);
+	}
+
 	Duration currentTime()
 	{
-		if (outstream)
+		return currentMsecs.msecs + (cast(long)(currentOffset.peek.total!"hnsecs" * effectiveSpeed))
+			.hnsecs + offset;
+	}
+
+	void playEffect(SoundEffect effect)
+	{
+		size_t max = 0;
+		ptrdiff_t maxLen = 0;
+		foreach (i, ref sound; playingEffects)
 		{
-			return currentMsecs.msecs + (cast(long)(currentOffset.peek.total!"hnsecs" * effectiveSpeed))
-				.hnsecs - (cast(long)(outstream.software_latency * 1_000_000)).usecs;
+			if (sound.time >= sound.data.length || sound.time > maxLen)
+			{
+				max = i;
+				maxLen = sound.time;
+				if (sound.time >= sound.data.length)
+					break;
+			}
 		}
-		else
-		{
-			return currentMsecs.msecs + (cast(long)(currentOffset.peek.total!"hnsecs" * effectiveSpeed))
-				.hnsecs;
-		}
+		playingEffects[max] = effect;
+		playingEffects[max].time = 0;
 	}
 
 	extern (C) static void writeCallback(int channels)(SoundIoOutStream* outstream,
@@ -300,6 +336,17 @@ struct AudioEngine
 				auto readFrame = cast(int)(frame * instance.speed);
 				if ((instance.audioReadIndex + readFrame) * channels + channels > instance.audioData.length)
 					break;
+				int effect;
+				foreach (ref sound; instance.playingEffects)
+				{
+					if (sound.time < sound.data.length)
+					{
+						if (sound.time >= 0)
+							effect += cast(short)(sound.data.ptr[sound.time] * sound.volume);
+						sound.time++;
+					}
+				}
+				effect = cast(int)(effect * instance.effectsVolume);
 				short[channels] sample = void;
 				if (instance.audioSampleRate == outstream.sample_rate)
 				{
@@ -315,7 +362,14 @@ struct AudioEngine
 				foreach (channel; 0 .. layout.channel_count)
 				{
 					short* ptr = cast(short*)(areas[channel].ptr + areas[channel].step * frame);
-					*ptr = sample[channel % channels];
+					int tmp = cast(int)((cast(int)(
+							sample[channel % channels] * instance.musicVolume) + effect) * instance.masterVolume);
+					if (tmp > short.max)
+						*ptr = short.max;
+					else if (tmp < short.min)
+						*ptr = short.min;
+					else
+						*ptr = cast(short) tmp;
 				}
 			}
 			instance.audioReadIndex += cast(int)(frame_count * instance.speed);
@@ -327,6 +381,8 @@ struct AudioEngine
 
 			if (auto err = soundio_outstream_end_write(outstream))
 			{
+				if (err == SoundIoError.SoundIoErrorUnderflow)
+					return;
 				stderr.writeln(soundio_strerror(err).fromStringz);
 				return;
 			}

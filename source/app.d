@@ -25,6 +25,7 @@ import osu;
 import systems.camera;
 import systems.display;
 import systems.movement;
+import waved;
 
 /// The entrypoint of the program
 int main(string[] args)
@@ -32,8 +33,8 @@ int main(string[] args)
 	Engine engine = new Engine();
 	with (engine)
 	{
-		auto window = new View("Example");
-		auto renderer = new Renderer;
+		auto window = new View("D-Man Taiko Name Placeholder");
+		auto renderer = new Renderer; //(GLGUIArguments(true, 800, 480, true));
 		auto world = add(window, renderer);
 
 		//dfmt off
@@ -51,9 +52,6 @@ int main(string[] args)
 		//dfmt on
 
 		FPSLimiter limiter = new FPSLimiter(240);
-		world.addSystem!MovementSystem(&playerCam);
-		world.addSystem!CameraSystem(window, renderer, &playerCam);
-		world.addSystem!DisplaySystem(window, renderer);
 
 		window.onResized ~= (w, h) {
 			renderer.resize(w, h);
@@ -64,10 +62,12 @@ int main(string[] args)
 		resources.prepend("res");
 		resources.prependAll("packs", "*.{pack,zip}");
 
-		auto songs = resources.listResources("Songs");
+		auto songs = resources.listResources("Songs", false, false);
 		immutable(ubyte)[] songMP3;
-		SongSelect: foreach (song; songs)
+		SongSelect: foreach (song; songs.randomCover)
 		{
+			import std.file : isDir, dirEntries, readText, read, SpanMode, exists;
+
 			if (song.extension == ".osz")
 			{
 				auto archive = new ZipArchive(resources.readFile(song).dup);
@@ -75,11 +75,26 @@ int main(string[] args)
 				{
 					if (file.path.extension != ".osu")
 						continue;
-					auto song = parseOsu(cast(string) file.data);
-					if (song.general.mode != Osu.Mode.taiko)
+					auto osu = parseOsu(cast(string) file.data);
+					if (osu.general.mode != Osu.Mode.taiko)
 						continue;
-					selectedSong = song;
-					songMP3 = archive.getFile(song.general.audioFilename).data;
+					selectedSong = osu;
+					songMP3 = archive.getFile(osu.general.audioFilename).data;
+					break SongSelect;
+				}
+			}
+			else if (exists(chainPath("res", song)) && isDir(chainPath("res", song)))
+			{
+				foreach (file; dirEntries(buildPath("res", song), SpanMode.shallow))
+				{
+					if (file.extension != ".osu")
+						continue;
+					auto osu = parseOsu(readText(file));
+					if (osu.general.mode != Osu.Mode.taiko)
+						continue;
+					selectedSong = osu;
+					songMP3 = cast(immutable(ubyte)[]) read(buildPath(file.dirName,
+							osu.general.audioFilename));
 					break SongSelect;
 				}
 			}
@@ -99,7 +114,6 @@ int main(string[] args)
 		shader.register(["modelview", "projection", "model", "tex"]);
 		shader.set("tex", 0);
 
-		int startContainers = -8, endContainers = 60;
 		int yContainers = 10;
 
 		{
@@ -107,15 +121,30 @@ int main(string[] args)
 				.value.meshes[0].toGLMesh;
 			auto texSpecial = resources.load!GLTexture("models/container/container2.png");
 			auto tex = resources.load!GLTexture("models/container/container.png");
+			auto texRed = resources.load!GLTexture("models/container/container_red.png");
 
-			for (int x = startContainers; x <= endContainers; x++)
-				for (int y = 0; y <= yContainers; y++)
-					mixin(createEntity!("Container", q{
-						PositionComponent: vec3(x * 2.44 * 3, -(y + 1) * 2.44, 0)
-						Cyclic: startContainers * 2.44 * 3, (endContainers + 1) * 2.44 * 3, 2.44 * 3
-						MeshComponent: uniform(0, 10) == 0 ? texSpecial : tex, shader, container
-						AABBCull: vec3(-1.22, 0, -3.03), vec3(1.22, 2.44, 3.03)
-					}));
+			float x = 0;
+			for (int i = 0; i < selectedSong.hitObjects.objects.length; i++)
+			{
+				double spacing = 3;
+				if (i - 1 >= 0)
+				{
+					auto delta = selectedSong.hitObjects.objects[i].time
+						- selectedSong.hitObjects.objects[i - 1].time;
+					if (delta < 100)
+						spacing = 1.5;
+					else if (delta < 250)
+						spacing = 2;
+				}
+				selectedSong.hitObjects.objects[i].spacing = spacing;
+				x += 2.44 * spacing;
+				mixin(createEntity!("ContainerStack", q{
+					PositionComponent: vec3(x, 0, 0)
+					ContainerStack: selectedSong.hitObjects.objects[i].taikoIsBlue ? (uniform(0, 10) == 0 ? texSpecial : tex) : texRed, shader, container, yContainers, vec3(-1.22, 0, -3.03), vec3(1.22, 2.44, 3.03)
+					AABBCull: vec3(-1.22, -2.44 * yContainers, -3.03), vec3(1.22, 0, 3.03)
+					HitCircleComponent: i, selectedSong.hitObjects.objects[i]
+				}));
+			}
 		}
 
 		{
@@ -143,6 +172,9 @@ int main(string[] args)
 			{
 				audio.load();
 
+				audio.musicVolume = 0.5;
+				audio.masterVolume = 0;
+
 				try
 				{
 					audio.play(songMP3);
@@ -165,10 +197,46 @@ int main(string[] args)
 		});
 		audioThread.start();
 
+		auto clap = resources.readFile("sounds/drum-hitclap.wav").soundFromWav;
+		auto normal = resources.readFile("sounds/drum-hitnormal.wav").soundFromWav;
+
+		auto movement = world.addSystem!MovementSystem(&playerCam, normal, clap,
+				Key.D, Key.F, Key.J, Key.K);
+		world.addSystem!CameraSystem(window, renderer, &playerCam);
+
+		// everything shit code
+		auto judgementCircle = resources.load!GLTexture("ui/judgement_circle.png");
+		judgementCircle.wrapY = TextureClampMode.ClampToEdge;
+		judgementCircle.applyParameters();
+		auto redCircle = resources.load!GLTexture("ui/circle_red.png").circleTexture;
+		auto blueCircle = resources.load!GLTexture("ui/circle_blue.png").circleTexture;
+		world.addSystem!DisplaySystem(window, renderer, judgementCircle, redCircle, blueCircle);
+
+		window.onKeyboard ~= &movement.onKeyboard;
+
 		start();
 		while (update)
 			limiter.wait();
 		stop();
 	}
 	return 0;
+}
+
+GLTexture circleTexture(GLTexture tex)
+{
+	tex.wrapX = TextureClampMode.ClampToEdge;
+	tex.wrapY = TextureClampMode.ClampToEdge;
+	tex.applyParameters();
+	return tex;
+}
+
+SoundEffect soundFromWav(in ubyte[] data, float volume = 1)
+{
+	SoundEffect ret;
+	ret.volume = volume;
+	Sound sound = decodeWAV(data).makeMono;
+	ret.data.length = sound.samples.length;
+	foreach (i, ref sample; ret.data)
+		sample = cast(short)(sound.samples[i] * short.max);
+	return ret;
 }
