@@ -276,6 +276,8 @@ struct AudioEngine
 			throw new Exception("Attempted to resume unsuccessful audio engine.");
 		soundio_outstream_pause(outstream, pause);
 		currentOffset.stop();
+		if (!pause)
+			playing = false;
 	}
 
 	void clearBuffer()

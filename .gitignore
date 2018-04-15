@@ -16,3 +16,4 @@ design/
 dub.selections.json
 res/Songs
 *~
+dist/

@@ -36,7 +36,7 @@ int main(string[] args)
 	Engine engine = new Engine();
 	with (engine)
 	{
-		auto window = new View("D-Man Taiko Name Placeholder");
+		auto window = new View("D-Man Taiko");
 		auto renderer = new Renderer; //(GLGUIArguments(true, 800, 480, true));
 		auto world = add(window, renderer);
 

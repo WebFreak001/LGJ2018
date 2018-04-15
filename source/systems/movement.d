@@ -58,6 +58,21 @@ public:
 		this.r2 = r2;
 	}
 
+	void reset()
+	{
+		redClickAnimation = 1;
+		blueClickAnimation = 1;
+		scoreAnimation = 1;
+		scoreAmount = 0;
+		totalScore = 0;
+		index = 0;
+		correction = 0;
+		transitionOffset = 0;
+		transitionMs = 0;
+		transitionStartMs = 0;
+		msToNextObject = 0;
+	}
+
 	void score(int howMuch)
 	{
 		totalScore += howMuch;
@@ -239,11 +254,11 @@ public:
 			}
 			width = object.spacing;
 		}
-		if (index >= selectedSong.hitObjects.objects.length
+		if (index >= selectedSong.hitObjects.objects.length && audio.playing
 				&& audio.audioReadIndex >= audio.audioData.length - audio.audioSampleRate)
 		{
 			index = 0;
-			audio.reset();
+			audio.stop(true);
 		}
 
 		if (transitionStartMs > 0)

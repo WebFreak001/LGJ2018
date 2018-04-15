@@ -65,6 +65,10 @@ public:
 		else
 			world.entities = clearEntities.dup;
 
+		foreach (system; systems)
+			if (cast(MovementSystem) system)
+				(cast(MovementSystem) system).reset();
+
 		auto archive = new ZipArchive(fs.read(event.file));
 
 		selectedSong = Osu.init;
@@ -135,7 +139,7 @@ public:
 		try
 		{
 			audio.play(songMP3);
-			audio.audioReadIndex = -audio.audioSampleRate;
+			audio.audioReadIndex = -audio.audioSampleRate * 3;
 		}
 		catch (Exception e)
 		{
@@ -156,6 +160,13 @@ public:
 		renderer.model.top *= mat4.translation((view.width - text.textWidth * 768) / 2,
 				view.height / 2, 0) * mat4.scaling(768, 512, 1);
 		text.draw(renderer, vec4(1));
+		renderer.model.pop();
+
+		text.text = "Play with D/F and J/K";
+		renderer.model.push(mat4.identity);
+		renderer.model.top *= mat4.translation((view.width - text.textWidth * 768) / 2,
+				view.height / 2 + 50, 0) * mat4.scaling(768, 512, 1);
+		text.draw(renderer, vec4(0.5));
 		renderer.model.pop();
 
 		renderer.bind3D();
