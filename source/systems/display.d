@@ -8,6 +8,8 @@ import avocado.input;
 import audioengine;
 import config;
 import components;
+import systems.movement;
+import text;
 
 import std.algorithm;
 import std.stdio;
@@ -21,10 +23,16 @@ private:
 
 	GLTexture white, judgementCircle;
 	GLTexture redCircle, blueCircle;
+	GLTexture redClick, blueClick;
+
+	Font font;
+	Text scoreText;
+	GL3ShaderProgram textShader;
 
 public:
-	this(View view, Renderer renderer, GLTexture judgementCircle,
-			GLTexture redCircle, GLTexture blueCircle)
+	this(View view, Renderer renderer, GLTexture judgementCircle, GLTexture redCircle,
+			GLTexture blueCircle, GLTexture redClick, GLTexture blueClick, Font font,
+			GL3ShaderProgram textShader)
 	{
 		this.renderer = renderer;
 		this.view = view;
@@ -34,6 +42,11 @@ public:
 		this.judgementCircle = judgementCircle;
 		this.redCircle = redCircle;
 		this.blueCircle = blueCircle;
+		this.redClick = redClick;
+		this.blueClick = blueClick;
+		this.font = font;
+		this.textShader = textShader;
+		scoreText = new Text(font, textShader, 16);
 	}
 
 	/// Draws the entities
@@ -42,6 +55,7 @@ public:
 		int rendered;
 		time += world.delta;
 		renderer.begin(view);
+		renderer.clearColor = vec4(0x49 / 255.0f, 0x8c / 255.0f, 0xb3 / 255.0f, 1);
 		renderer.clear();
 
 		auto projectionView = renderer.projection.top * renderer.view.top;
@@ -52,6 +66,7 @@ public:
 			{
 				PositionComponent* position;
 				MeshComponent mesh;
+				AnimatedMeshComponent* animatedMesh;
 				LockCamera lock;
 				Cyclic cyclic;
 				JumpPhysics* phys;
@@ -97,6 +112,19 @@ public:
 							renderer.drawMesh(mesh.mesh);
 							rendered++;
 						}
+						if (entity.fetch(animatedMesh))
+						{
+							renderer.model.push();
+							renderer.model.top *= animatedMesh.offset;
+							animatedMesh.tick(world.delta);
+							animatedMesh.tex.bind(renderer, 0);
+							renderer.bind(animatedMesh.shader);
+							animatedMesh.shader.set("model", renderer.model.top);
+							animatedMesh.shader.set("bones", animatedMesh.mesh.bones);
+							renderer.drawMesh(animatedMesh.mesh.base);
+							rendered++;
+							renderer.model.pop();
+						}
 						ContainerStack containers;
 						if (entity.fetch(containers))
 						{
@@ -122,7 +150,7 @@ public:
 
 		renderer.bind2D();
 		renderer.drawRectangle(white, vec4(0, view.height - 123, view.width, 123));
-		foreach (entity; world.entities)
+		foreach_reverse (entity; world.entities)
 		{
 			if (entity.alive)
 			{
@@ -130,7 +158,7 @@ public:
 					HitCircleComponent* hitCircle;
 					if (entity.fetch(hitCircle))
 					{
-						auto offset = hitCircle.info.time - audio.currentTime.total!"msecs"; // + audio.offset.total!"msecs";
+						auto offset = hitCircle.info.time - audio.currentTime.total!"msecs";
 						auto x = 115 + offset * 0.5;
 						if (x >= -200 && x <= view.width + 200)
 						{
@@ -153,7 +181,7 @@ public:
 							{
 								if (offset < 0)
 								{
-									color.a = (10 + offset) * 0.1;
+									color = vec4(1, 1, 1, (10 + offset) * 0.1);
 								}
 							}
 							rect.y += yDisplayOffset;
@@ -167,9 +195,77 @@ public:
 		}
 		renderer.drawRectangle(judgementCircle, vec4(0, -0.1, 1, 1.2), vec4(0,
 				view.height - 120, 200, 120), vec4(1));
+		renderer.drawFadedAnimation(redClick, vec4(15, view.height - 160, 200, 200),
+				redClickAnimation, world.delta);
+		renderer.drawFadedAnimation(blueClick, vec4(15, view.height - 160, 200,
+				200), blueClickAnimation, world.delta);
+		scoreAnimation += world.delta;
+		if (scoreAnimation < 0.2)
+		{
+			auto newText = scoreAmount.textForAmount;
+			scoreText.text = newText;
+			renderer.model.push(mat4.identity);
+			renderer.model.top *= mat4.translation(40,
+					view.height - 60 - scoreAnimation * 50, 0) * mat4.scaling(768, 512, 1);
+			float a = 1 - (scoreAnimation * 5) ^^ 3;
+			scoreText.draw(renderer, scoreAmount == 0 ? vec4(1, 0, 0, a) : vec4(0.2, 0.8, 0.3, a));
+			renderer.model.pop();
+		}
+
+		{
+			scoreChars[$ - 1] = '0' + (totalScore % 10);
+			scoreChars[$ - 2] = '0' + ((totalScore / 10) % 10);
+			scoreChars[$ - 3] = '0' + ((totalScore / 100) % 10);
+			scoreChars[$ - 4] = ',';
+			scoreChars[$ - 5] = '0' + ((totalScore / 1000) % 10);
+			scoreChars[$ - 6] = '0' + ((totalScore / 10000) % 10);
+			scoreChars[$ - 7] = '0' + ((totalScore / 100000) % 10);
+			scoreChars[$ - 8] = ',';
+			scoreChars[$ - 9] = '0' + ((totalScore / 1000000) % 10);
+			scoreChars[$ - 10] = '0' + ((totalScore / 10000000) % 10);
+			scoreChars[$ - 11] = '0' + ((totalScore / 100000000) % 10);
+			scoreText.text = cast(dstring) scoreChars[];
+			renderer.model.push(mat4.identity);
+			renderer.model.top *= mat4.translation(view.width - scoreText.textWidth * 768 - 10,
+					40, 0) * mat4.scaling(768, 512, 1);
+			scoreText.draw(renderer, vec4(1));
+			renderer.model.pop();
+		}
+
 		renderer.bind3D();
 		renderer.end(view);
 	}
+}
+
+dchar[11] scoreChars;
+
+dstring textForAmount(int amount)
+{
+	switch (amount)
+	{
+	case 600:
+		return "600";
+	case 300:
+		return "300";
+	case 200:
+		return "200";
+	case 100:
+		return "100";
+	case 50:
+		return "50";
+	case 0:
+		return "MISS";
+	default:
+		return "???";
+	}
+}
+
+void drawFadedAnimation(ref Renderer renderer, GLTexture texture, vec4 rect,
+		ref double time, double delta)
+{
+	time += delta;
+	if (time < 0.3)
+		renderer.drawRectangle(texture, rect, vec4(1, 1, 1, 1 - (time / 0.3)));
 }
 
 bool isInsideFrustum(mat4 mvp, vec3 min, vec3 max)

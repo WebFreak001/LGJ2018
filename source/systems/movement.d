@@ -18,6 +18,12 @@ Osu selectedSong;
 enum Red = false;
 enum Blue = true;
 
+double redClickAnimation = 1;
+double blueClickAnimation = 1;
+double scoreAnimation = 1;
+int scoreAmount = 0;
+int totalScore = 0;
+
 final class MovementSystem : ISystem
 {
 private:
@@ -54,11 +60,17 @@ public:
 
 	void score(int howMuch)
 	{
-		writeln(howMuch);
+		totalScore += howMuch;
+		scoreAmount = howMuch;
+		scoreAnimation = 0;
 	}
 
 	void hit(bool blue, bool big, long at)
 	{
+		if (blue)
+			blueClickAnimation = 0;
+		else
+			redClickAnimation = 0;
 		auto circle = getCurrentCircle();
 		if (blue)
 		{
@@ -139,6 +151,14 @@ public:
 				{
 					audio.clearBuffer();
 				}
+				else if (event.keysym.sym == Key.F2)
+				{
+					audio.speed /= 1.03;
+				}
+				else if (event.keysym.sym == Key.F3)
+				{
+					audio.speed *= 1.03;
+				}
 			}
 		}
 	}
@@ -183,18 +203,10 @@ public:
 		msToNextObject -= cast(int) selectedSong.hitMsFor300(Osu.Mod.none);
 		if (msToNextObject <= 10)
 			msToNextObject = 10;
-
-		if (object.taikoIsBig)
-			writeln(object.taikoIsBlue ? "A" : "B");
-		else
-			writeln(object.taikoIsBlue ? "a" : "b");
 		index++;
 
 		auto time = audio.currentTime.total!"msecs";
-		if (time > object.time)
-			transitionMs = 0;
-		else if (index < selectedSong.hitObjects.objects.length)
-			transitionStartMs = cast(int)(time - object.time);
+		transitionMs = 0;
 	}
 
 	final void update(World world)
@@ -227,8 +239,8 @@ public:
 			}
 			width = object.spacing;
 		}
-		if (index == selectedSong.hitObjects.objects.length
-				&& audio.audioReadIndex >= audio.audioData.length)
+		if (index >= selectedSong.hitObjects.objects.length
+				&& audio.audioReadIndex >= audio.audioData.length - audio.audioSampleRate)
 		{
 			index = 0;
 			audio.reset();

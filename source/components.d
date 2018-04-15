@@ -31,6 +31,31 @@ final struct MeshComponent
 	}
 }
 
+final struct AnimatedMeshComponent
+{
+	GLTexture tex;
+	GL3ShaderProgram shader;
+	AnimatedMesh mesh;
+	float playFrom = 0, playTo = 5;
+	mat4 offset = mat4.identity;
+	float time = 0;
+	mixin ComponentBase;
+
+	string toString() const
+	{
+		return format("AnimatedMesh %x", cast(size_t)&mesh);
+	}
+
+	void tick(double delta)
+	{
+		float tps = mesh.animation.ticksPerSecond != 0 ? mesh.animation.ticksPerSecond : 25;
+		time += cast(float) delta * tps;
+		if (time > playTo)
+			time = playFrom;
+		mesh.loadFrame(time);
+	}
+}
+
 final struct ContainerStack
 {
 	GLTexture tex;

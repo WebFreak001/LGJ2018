@@ -57,7 +57,7 @@ struct AudioEngine
 	/// Current audio sample rate.
 	int audioSampleRate;
 	/// Index where the audio stream is currently at.
-	size_t audioReadIndex;
+	ptrdiff_t audioReadIndex;
 	SoundEffect[16] playingEffects;
 
 	/// Device to handle sound device management with.
@@ -241,6 +241,11 @@ struct AudioEngine
 		soundio_flush_events(soundio);
 	}
 
+	void wait()
+	{
+		soundio_wait_events(soundio);
+	}
+
 	void reset()
 	{
 		audioReadIndex = 0;
@@ -334,7 +339,8 @@ struct AudioEngine
 			foreach (frame; 0 .. frame_count)
 			{
 				auto readFrame = cast(int)(frame * instance.speed);
-				if ((instance.audioReadIndex + readFrame) * channels + channels > instance.audioData.length)
+				if ((instance.audioReadIndex + cast(ptrdiff_t) readFrame) * channels + channels > cast(
+						ptrdiff_t) instance.audioData.length)
 					break;
 				int effect;
 				foreach (ref sound; instance.playingEffects)
@@ -348,7 +354,9 @@ struct AudioEngine
 				}
 				effect = cast(int)(effect * instance.effectsVolume);
 				short[channels] sample = void;
-				if (instance.audioSampleRate == outstream.sample_rate)
+				if (instance.audioReadIndex < 0)
+					sample[] = 0;
+				else if (instance.audioSampleRate == outstream.sample_rate)
 				{
 					static foreach (i; 0 .. channels)
 						sample[i] = instance.audioData.ptr[(instance.audioReadIndex + readFrame) * channels + i];

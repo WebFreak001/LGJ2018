@@ -3,6 +3,7 @@ import std.stdio;
 import archive.zip;
 
 import avocado.assimp;
+import avocado.bmfont;
 import avocado.core;
 import avocado.dfs;
 import avocado.gl3;
@@ -25,7 +26,9 @@ import osu;
 import systems.camera;
 import systems.display;
 import systems.movement;
+import systems.menu;
 import waved;
+import text;
 
 /// The entrypoint of the program
 int main(string[] args)
@@ -36,6 +39,8 @@ int main(string[] args)
 		auto window = new View("D-Man Taiko Name Placeholder");
 		auto renderer = new Renderer; //(GLGUIArguments(true, 800, 480, true));
 		auto world = add(window, renderer);
+
+		SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
 
 		//dfmt off
 		Camera playerCam = {
@@ -62,101 +67,35 @@ int main(string[] args)
 		resources.prepend("res");
 		resources.prependAll("packs", "*.{pack,zip}");
 
-		auto songs = resources.listResources("Songs", false, false);
-		immutable(ubyte)[] songMP3;
-		SongSelect: foreach (song; songs.randomCover)
-		{
-			import std.file : isDir, dirEntries, readText, read, SpanMode, exists;
-
-			if (song.extension == ".osz")
-			{
-				auto archive = new ZipArchive(resources.readFile(song).dup);
-				foreach (file; archive.files)
-				{
-					if (file.path.extension != ".osu")
-						continue;
-					auto osu = parseOsu(cast(string) file.data);
-					if (osu.general.mode != Osu.Mode.taiko)
-						continue;
-					selectedSong = osu;
-					songMP3 = archive.getFile(osu.general.audioFilename).data;
-					break SongSelect;
-				}
-			}
-			else if (exists(chainPath("res", song)) && isDir(chainPath("res", song)))
-			{
-				foreach (file; dirEntries(buildPath("res", song), SpanMode.shallow))
-				{
-					if (file.extension != ".osu")
-						continue;
-					auto osu = parseOsu(readText(file));
-					if (osu.general.mode != Osu.Mode.taiko)
-						continue;
-					selectedSong = osu;
-					songMP3 = cast(immutable(ubyte)[]) read(buildPath(file.dirName,
-							osu.general.audioFilename));
-					break SongSelect;
-				}
-			}
-		}
-
-		if (selectedSong == Osu.init || !songMP3.length)
-			throw new Exception(
-					"No songs found (Place some osz files or folders with osu files in res/Songs)");
-		else
-			writeln("Playing ", selectedSong.metadata.artistUnicode, " - ", selectedSong.metadata.titleUnicode, " [",
-					selectedSong.metadata.version_, "] mapped by ", selectedSong.metadata.creator);
+		auto textureFrag = new GLShaderUnit(ShaderType.Fragment, import("texture.frag"));
 
 		auto shader = new GL3ShaderProgram();
-		shader.attach(new GLShaderUnit(ShaderType.Fragment, import("texture.frag")))
-			.attach(new GLShaderUnit(ShaderType.Vertex, import("default.vert")));
+		shader.attach(textureFrag).attach(new GLShaderUnit(ShaderType.Vertex, import("default.vert")));
 		shader.create(renderer);
 		shader.register(["modelview", "projection", "model", "tex"]);
 		shader.set("tex", 0);
 
-		int yContainers = 10;
+		auto animatedShader = new GL3ShaderProgram();
+		animatedShader.attach(textureFrag)
+			.attach(new GLShaderUnit(ShaderType.Vertex, import("bone.vert")));
+		animatedShader.create(renderer);
+		animatedShader.register(["modelview", "projection", "model", "tex", "bones"]);
+		animatedShader.set("tex", 0);
 
-		{
-			auto container = resources.load!Scene("models/container/container.obj")
-				.value.meshes[0].toGLMesh;
-			auto texSpecial = resources.load!GLTexture("models/container/container2.png");
-			auto tex = resources.load!GLTexture("models/container/container.png");
-			auto texRed = resources.load!GLTexture("models/container/container_red.png");
-
-			float x = 0;
-			for (int i = 0; i < selectedSong.hitObjects.objects.length; i++)
-			{
-				double spacing = 3;
-				if (i - 1 >= 0)
-				{
-					auto delta = selectedSong.hitObjects.objects[i].time
-						- selectedSong.hitObjects.objects[i - 1].time;
-					if (delta < 100)
-						spacing = 1.5;
-					else if (delta < 250)
-						spacing = 2;
-				}
-				selectedSong.hitObjects.objects[i].spacing = spacing;
-				x += 2.44 * spacing;
-				mixin(createEntity!("ContainerStack", q{
-					PositionComponent: vec3(x, 0, 0)
-					ContainerStack: selectedSong.hitObjects.objects[i].taikoIsBlue ? (uniform(0, 10) == 0 ? texSpecial : tex) : texRed, shader, container, yContainers, vec3(-1.22, 0, -3.03), vec3(1.22, 2.44, 3.03)
-					AABBCull: vec3(-1.22, -2.44 * yContainers, -3.03), vec3(1.22, 0, 3.03)
-					HitCircleComponent: i, selectedSong.hitObjects.objects[i]
-				}));
-			}
-		}
+		auto textShader = new GL3ShaderProgram();
+		textShader.attach(new GLShaderUnit(ShaderType.Fragment, import("text.frag")))
+			.attach(new GLShaderUnit(ShaderType.Vertex, import("text.vert")));
+		textShader.create(renderer);
+		textShader.register(["modelview", "projection", "color", "tex"]);
+		textShader.set("tex", 0);
 
 		{
 			auto scene = resources.load!Scene("models/dman/dman.fbx").value;
-			foreach (i, ref mesh; scene.meshes)
-				writeln(i, ": ", mesh.name);
-			auto dman = scene.meshes[0].toGLMesh;
+			auto dman = scene.meshes[0].toAnimatedGLMesh(scene.animations[0]);
 			auto tex = resources.load!GLTexture("models/dman/dman.png");
-			writeln(dman);
 			mixin(createEntity!("Player", q{
-				PositionComponent: vec3(0, 0, 0), quat.xrotation(-cradians!90)
-				MeshComponent: tex, shader, dman
+				PositionComponent: vec3(0, 0, 0), quat.yrotation(cradians!90)
+				AnimatedMeshComponent: tex, animatedShader, dman
 				LockCamera: &playerCam
 				JumpPhysics:
 			}));
@@ -172,17 +111,8 @@ int main(string[] args)
 			{
 				audio.load();
 
-				audio.musicVolume = 0.5;
-				audio.masterVolume = 0;
-
-				try
-				{
-					audio.play(songMP3);
-				}
-				catch (Exception e)
-				{
-					stderr.writeln("Failed to play audio: ", e);
-				}
+				audio.musicVolume = 0.7;
+				audio.masterVolume = 1;
 
 				while (running)
 				{
@@ -208,11 +138,17 @@ int main(string[] args)
 		auto judgementCircle = resources.load!GLTexture("ui/judgement_circle.png");
 		judgementCircle.wrapY = TextureClampMode.ClampToEdge;
 		judgementCircle.applyParameters();
-		auto redCircle = resources.load!GLTexture("ui/circle_red.png").circleTexture;
-		auto blueCircle = resources.load!GLTexture("ui/circle_blue.png").circleTexture;
-		world.addSystem!DisplaySystem(window, renderer, judgementCircle, redCircle, blueCircle);
+		auto redCircle = resources.load!GLTexture("ui/circle_red.png").clampingTexture;
+		auto blueCircle = resources.load!GLTexture("ui/circle_blue.png").clampingTexture;
+		auto redClick = resources.load!GLTexture("ui/click_red.png").clampingTexture;
+		auto blueClick = resources.load!GLTexture("ui/click_blue.png").clampingTexture;
+		Font font = resources.load!Font("fonts/roboto.fnt", resources, "fonts/");
+		world.addSystem!DisplaySystem(window, renderer, judgementCircle,
+				redCircle, blueCircle, redClick, blueClick, font, textShader);
 
 		window.onKeyboard ~= &movement.onKeyboard;
+
+		spawnMenu(world, window, renderer, font, textShader, shader, resources);
 
 		start();
 		while (update)
@@ -222,7 +158,16 @@ int main(string[] args)
 	return 0;
 }
 
-GLTexture circleTexture(GLTexture tex)
+void spawnMenu(World world, View view, Renderer renderer, Font font,
+		GL3ShaderProgram textShader, GL3ShaderProgram shader, ResourceManager resources)
+{
+	auto systems = world.systems;
+	world.systems = [];
+	world.addSystem!MainMenuScene(view, renderer, world, systems, font,
+			textShader, shader, resources);
+}
+
+GLTexture clampingTexture(GLTexture tex)
 {
 	tex.wrapX = TextureClampMode.ClampToEdge;
 	tex.wrapY = TextureClampMode.ClampToEdge;
