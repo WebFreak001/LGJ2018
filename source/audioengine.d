@@ -59,6 +59,8 @@ struct AudioEngine
 	/// Index where the audio stream is currently at.
 	ptrdiff_t audioReadIndex;
 	SoundEffect[16] playingEffects;
+	/// Backend to connect with (must be set before loading)
+	SoundIoBackend backend = SoundIoBackend.SoundIoBackendNone;
 
 	/// Device to handle sound device management with.
 	SoundIo* soundio;
@@ -112,10 +114,21 @@ struct AudioEngine
 			assert(false);
 		}
 
-		if (auto err = soundio_connect(soundio))
+		if (backend == SoundIoBackend.SoundIoBackendNone)
 		{
-			stderr.writeln("Error connecting audio device: ", soundio_strerror(err).fromStringz);
-			return;
+			if (auto err = soundio_connect(soundio))
+			{
+				stderr.writeln("Error connecting audio device: ", soundio_strerror(err).fromStringz);
+				return;
+			}
+		}
+		else
+		{
+			if (auto err = soundio_connect_backend(soundio, backend))
+			{
+				stderr.writeln("Error connecting audio device w/ backend: ", soundio_strerror(err).fromStringz);
+				return;
+			}
 		}
 
 		soundio_flush_events(soundio);

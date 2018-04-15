@@ -29,15 +29,62 @@ import systems.movement;
 import systems.menu;
 import waved;
 import text;
+import soundio.soundio;
 
 /// The entrypoint of the program
 int main(string[] args)
 {
+	string prog = args[0];
+	args = args[1 .. $];
+	Loop: while (args.length)
+	{
+		switch (args[0])
+		{
+		case "-h":
+		case "--help":
+			writeln("Usage: ", prog, " [--backend dummy|alsa|pulseaudio|jack|coreaudio|wasapi]");
+			return 0;
+		case "--backend":
+			args = args[1 .. $];
+			if (args.length)
+			{
+				switch (args[0])
+				{
+				case "dummy":
+					audio.backend = SoundIoBackend.SoundIoBackendDummy;
+					break;
+				case "alsa":
+					audio.backend = SoundIoBackend.SoundIoBackendAlsa;
+					break;
+				case "pulseaudio":
+					audio.backend = SoundIoBackend.SoundIoBackendPulseAudio;
+					break;
+				case "jack":
+					audio.backend = SoundIoBackend.SoundIoBackendJack;
+					break;
+				case "coreaudio":
+					audio.backend = SoundIoBackend.SoundIoBackendCoreAudio;
+					break;
+				case "wasapi":
+					audio.backend = SoundIoBackend.SoundIoBackendWasapi;
+					break;
+				default:
+					stderr.writeln("Unknown backend: ", args[0]);
+					return 1;
+				}
+			}
+			break;
+		default:
+			break Loop;
+		}
+	}
+
 	Engine engine = new Engine();
 	with (engine)
 	{
 		auto window = new View("D-Man Taiko");
 		auto renderer = new Renderer; //(GLGUIArguments(true, 800, 480, true));
+		window.setOpenGLVersion(3, 3);
 		auto world = add(window, renderer);
 
 		SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
